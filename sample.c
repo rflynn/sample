@@ -36,6 +36,7 @@ typedef struct {
     struct {
         long pagesize;
         long pagefree;
+        long filepages;
         long size;
         long used;
         long free;
@@ -89,10 +90,20 @@ static long get_sysctl(const char *name)
 static void get_mem(snapshot_t *snap)
 {
 #ifdef __MACH__
-    snap->mem.pagesize = get_sysctl("hw.pagesize");
+    FILE *f = popen("vm_stat | grep '^File-backed pages:'", "r");
+    char line[128];
+    if (fgets(line, sizeof line, f)) {
+        if (1 != sscanf(line, "File-backed pages: %ld.", &snap->mem.filepages)) {
+            snap->mem.filepages = 0;
+        }
+    }
+    pclose(f);
+
+    if (!snap->mem.size) snap->mem.size = get_sysctl("hw.memsize");
+    if (!snap->mem.pagesize) snap->mem.pagesize = get_sysctl("hw.pagesize");
     snap->mem.pagefree = get_sysctl("vm.page_free_count");
-    snap->mem.size = get_sysctl("hw.memsize");
-    snap->mem.free = snap->mem.pagefree * snap->mem.pagesize;
+
+    snap->mem.free = (snap->mem.pagefree + snap->mem.filepages) * snap->mem.pagesize;
     snap->mem.used = snap->mem.size - snap->mem.free;
 #endif
 #ifdef __linux__
@@ -228,13 +239,13 @@ static long calc_sleep_for(long slept_for,
     overheads[*cnt % 10] = ohead;
     *cnt += 1;
 
+    /* sum overheads over stored range */
     for (i = 0; i < 10; i++) {
         if (overheads[i] < miss_min) miss_min = overheads[i];
         if (overheads[i] > miss_max) miss_max = overheads[i];
         ohead_sum += overheads[i];
     }
-    ohead_sum += miss_min; 
-    ohead_sum -= miss_max; 
+    ohead_sum -= miss_max;
 
     sleep_for = 1000000 - (ohead_sum / 10);
 
