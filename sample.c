@@ -256,8 +256,9 @@ static void on_snap(const snapshot_t *a,
 
 static snapshot_t snap1, snap2;
 
-void timer_handler(int _signum)
+void timer_handler(int signum)
 {
+    signum = signum; /* silence warning */
     take_snap(&snap2);
     on_snap(&snap1, &snap2);
     snap1 = snap2;
