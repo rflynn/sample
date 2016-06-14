@@ -227,7 +227,7 @@ static void on_snap(const snapshot_t *a,
     const long cpu_idle  = b->cpu.idle  - a->cpu.idle;
 
     const float cpu_user_pct = (float)cpu_user / cpu_total;
-    const float cpu_sys_pct = (float)cpu_sys / cpu_total;
+    const float cpu_sys_pct  = (float)cpu_sys / cpu_total;
     const float cpu_idle_pct = (float)cpu_idle / cpu_total;
 
     const float mem_used_pct = (float)b->mem.used / b->mem.size;
@@ -255,7 +255,7 @@ void timer_handler(int _signum)
 {
     take_snap(&snap2);
     on_snap(&snap1, &snap2);
-    memcpy(&snap1, &snap2, sizeof snap1);
+    snap1 = snap2;
 }
 
 int main(int argc, char *argv[])
