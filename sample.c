@@ -245,9 +245,10 @@ static long calc_sleep_for(long slept_for,
         if (overheads[i] > miss_max) miss_max = overheads[i];
         ohead_sum += overheads[i];
     }
+    ohead_sum -= miss_min;
     ohead_sum -= miss_max;
 
-    sleep_for = 1000000 - (ohead_sum / 10);
+    sleep_for = 1000000 - (ohead_sum / 8);
 
     if (sleep_for < 0) {
         sleep_for = 0;
