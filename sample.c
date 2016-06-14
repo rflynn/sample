@@ -4,10 +4,12 @@
  * optionally watches another process and dies when it does
  */
 
+#include <inttypes.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/sysctl.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -19,6 +21,10 @@
 #include <mach/mach.h>
 #include <mach/mach_host.h>
 #include <mach/host_info.h>
+#endif
+
+#ifdef __linux__
+#include <linux/sysctl.h>
 #endif
 
 typedef struct {
@@ -69,6 +75,7 @@ static void get_ts(snapshot_t *snap)
         snap->ts.ts.tv_sec, snap->ts.ts.tv_nsec / 1000000L);
 }
 
+#ifdef __MACH__
 static long get_sysctl(const char *name)
 {
     long val;
@@ -77,6 +84,7 @@ static long get_sysctl(const char *name)
     sysctlbyname(name, &val, &len, NULL, 0);
     return val;
 }
+#endif
 
 static void get_mem(snapshot_t *snap)
 {
@@ -87,10 +95,31 @@ static void get_mem(snapshot_t *snap)
     snap->mem.free = snap->mem.pagefree * snap->mem.pagesize;
     snap->mem.used = snap->mem.size - snap->mem.free;
 #endif
+#ifdef __linux__
+    FILE *f = fopen("/proc/meminfo", "r");
+    char line[128];
+
+    if (fgets(line, sizeof line, f)) {
+        snap->mem.size = 0;
+        sscanf(line, "MemTotal: %ld kB", &snap->mem.size);
+        snap->mem.size *= 1024;
+    }
+
+    if (fgets(line, sizeof line, f)) {
+        snap->mem.free = 0;
+        sscanf(line, "MemFree: %ld kB", &snap->mem.free);
+        snap->mem.free *= 1024;
+    }
+
+    snap->mem.used = snap->mem.size - snap->mem.free;
+
+    fclose(f);
+#endif
 }
 
 static void get_cpu(snapshot_t *snap)
 {
+#ifdef __MACH__
     kern_return_t status;
     mach_msg_type_number_t count = HOST_CPU_LOAD_INFO_COUNT;
     host_cpu_load_info_data_t cpuload;
@@ -114,7 +143,24 @@ static void get_cpu(snapshot_t *snap)
                     + snap->cpu.nice
                     + snap->cpu.sys
                     + snap->cpu.idle;
-
+#endif
+#ifdef __linux__
+    FILE *f = fopen("/proc/stat", "r");
+    char line[128];
+    // cpu  333883 18436 125736 73090614 45323 1 2663 0 0 0
+    if (fgets(line, sizeof line, f)) {
+        long user, nice, sys, idle, iowait, irq, softirq;
+        if (7 == sscanf(line, "cpu %ld %ld %ld %ld %ld %ld %ld",
+            &user, &nice, &sys, &idle, &iowait, &irq, &softirq)) {
+            snap->cpu.user = user;
+            snap->cpu.sys = sys;
+            snap->cpu.idle = idle;
+            snap->cpu.nice = nice;
+            snap->cpu.total = user + nice + sys + idle + iowait + irq + softirq;
+        }
+    }
+    fclose(f);
+#endif
 }
 
 static void get_net(snapshot_t *snap)
@@ -123,7 +169,13 @@ static void get_net(snapshot_t *snap)
     /*
      * TODO: figure out how netstat does it and void this crap
      */
-    FILE *f = popen("/usr/sbin/netstat -ibn | /usr/bin/awk '{if (NF+1 == 12){ print $1,$5,$8 }}' | /usr/bin/tail -n +2 | /usr/bin/sort | /usr/bin/uniq", "r");
+#ifdef __MACH__
+    const char *cmd = "/usr/sbin/netstat -ibn | /usr/bin/awk '{if (NF+1 == 12){ print $1,$5,$8 }}' | /usr/bin/tail -n +2 | /usr/bin/sort | /usr/bin/uniq";
+#endif
+#ifdef __linux__
+    const char *cmd = "/bin/netstat -in | /usr/bin/awk '{ print $1,$4,$8 }' | tail -n +3";
+#endif
+    FILE *f = popen(cmd, "r");
     size_t i;
     strcpy(snap->net[0].iface, "all");
     snap->net[0].rxbytes = 0;
@@ -134,7 +186,7 @@ static void get_net(snapshot_t *snap)
             break;
         }
         if (3 != sscanf(line,
-                    "%32s %lld %lld",
+                    "%32s %"SCNd64 " %"SCNd64,
                     snap->net[i].iface,
                     &snap->net[i].rxbytes,
                     &snap->net[i].txbytes)) {
