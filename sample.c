@@ -235,13 +235,18 @@ static void on_snap(const snapshot_t *a,
     const unsigned long rxbytes = b->net[0].rxbytes - a->net[0].rxbytes;
     const unsigned long txbytes = b->net[0].txbytes - a->net[0].txbytes;
 
+    float cpu_busy_pct = 1. - cpu_idle_pct;
+    if (cpu_busy_pct < cpu_user_pct + cpu_sys_pct) {
+        cpu_busy_pct = cpu_user_pct + cpu_sys_pct;
+    }
+
     printf(
         "%s"
         " %.1f %.1f %.1f"
         " %.1f"
         " %lu %lu\n",
         a->ts.str,
-        (1. - cpu_idle_pct) * 100,
+        cpu_busy_pct * 100,
         cpu_user_pct * 100,
         cpu_sys_pct * 100,
         mem_used_pct * 100,
