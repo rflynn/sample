@@ -274,6 +274,9 @@ int main(int argc, char *argv[])
         watchpid = strtol(argv[1], NULL, 10);
     }
 
+    /* explicit line-buffering so 'tee' and friends work as expected */
+    setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
+
     memset(&sa, 0, sizeof sa);
     sa.sa_handler = &timer_handler;
     sigaction(SIGALRM, &sa, NULL);
