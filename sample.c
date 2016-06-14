@@ -210,7 +210,7 @@ static void get_net(snapshot_t *snap)
     pclose(f);
 }
 
-static void get_perf(snapshot_t *snap)
+static void take_snap(snapshot_t *snap)
 {
     get_ts(snap);
     get_mem(snap);
@@ -218,52 +218,8 @@ static void get_perf(snapshot_t *snap)
     get_net(snap);
 }
 
-static long calc_sleep_for(long slept_for,
-                           long overheads[10],
-                           long *cnt,
-                           const snapshot_t *a,
-                           const snapshot_t *b)
-{
-    /*
-     * figure out distance between timestamps, and overhead
-     * and then calculate how long we should sleep_for
-     */
-    long udiff = ((b->ts.ts.tv_sec - a->ts.ts.tv_sec) * 1000000L)
-                    + ((b->ts.ts.tv_nsec - a->ts.ts.tv_nsec) / 1000L);
-    long ohead = udiff - slept_for;
-    long sleep_for;
-    long ohead_sum = 0;
-    long miss_min = udiff, miss_max = 0;
-    int i;
-
-    overheads[*cnt % 10] = ohead;
-    *cnt += 1;
-
-    /* sum overheads over stored range */
-    for (i = 0; i < 10; i++) {
-        if (overheads[i] < miss_min) miss_min = overheads[i];
-        if (overheads[i] > miss_max) miss_max = overheads[i];
-        ohead_sum += overheads[i];
-    }
-    ohead_sum -= miss_min;
-    ohead_sum -= miss_max;
-
-    sleep_for = 1000000 - (ohead_sum / 8);
-
-    if (sleep_for < 0) {
-        sleep_for = 0;
-    } else if (sleep_for >= 9999999) {
-        sleep_for = 999999;
-    }
-
-    return sleep_for;
-}
-
-static double perf_diff(long slept_for,
-                        long oheads[10],
-                        long *cnt,
-                        const snapshot_t *a,
-                        const snapshot_t *b)
+static void on_snap(const snapshot_t *a,
+                    const snapshot_t *b)
 {
     const long cpu_total = b->cpu.total - a->cpu.total;
     const long cpu_user  = b->cpu.user  - a->cpu.user;
@@ -279,8 +235,6 @@ static double perf_diff(long slept_for,
     const unsigned long rxbytes = b->net[0].rxbytes - a->net[0].rxbytes;
     const unsigned long txbytes = b->net[0].txbytes - a->net[0].txbytes;
 
-    const long sleep_for = calc_sleep_for(slept_for, oheads, cnt, a, b);
-
     printf(
         "%s"
         " %.1f %.1f %.1f"
@@ -293,27 +247,41 @@ static double perf_diff(long slept_for,
         mem_used_pct * 100,
         rxbytes,
         txbytes);
+}
 
-    return sleep_for;
+static snapshot_t snap1, snap2;
+
+void timer_handler(int _signum)
+{
+    take_snap(&snap2);
+    on_snap(&snap1, &snap2);
+    memcpy(&snap1, &snap2, sizeof snap1);
 }
 
 int main(int argc, char *argv[])
 {
     pid_t watchpid = getpid(); /* default: watch self */
-    long sleep_for = 990000;
-    long oheads[10] = {0};
-    long cnt = 0;
-    snapshot_t snap1, snap2;
+    struct sigaction sa;
+    struct itimerval timer;
+
     if (argc == 2) {
         watchpid = strtol(argv[1], NULL, 10);
     }
+
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = &timer_handler;
+    sigaction(SIGALRM, &sa, NULL);
+    timer.it_value.tv_sec = 1;
+    timer.it_value.tv_usec = 0;
+    timer.it_interval.tv_sec = 1;
+    timer.it_interval.tv_usec = 0;
+    setitimer(ITIMER_REAL, &timer, NULL);
+
     printf("ts cpu usr sys mem rx tx\n");
-    get_perf(&snap1);
+    take_snap(&snap1);
+
     while (!kill(watchpid, 0)) {
-        usleep(sleep_for);
-        get_perf(&snap2);
-        sleep_for = perf_diff(sleep_for, oheads, &cnt, &snap1, &snap2);
-        memcpy(&snap1, &snap2, sizeof snap1);
+        usleep(1000000);
     }
     return 0;
 }
