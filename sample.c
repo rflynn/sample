@@ -45,6 +45,11 @@ typedef struct {
         long ticks;
         uint64_t user, sys, idle, nice, total;
     } cpu;
+    struct {
+        int64_t totalbytes;
+        int64_t rdbytes;
+        int64_t wrbytes;
+    } disk;
     size_t netcnt;
     struct {
         char iface[32];
@@ -210,12 +215,83 @@ static void get_net(snapshot_t *snap)
     pclose(f);
 }
 
+static void get_disk(snapshot_t *snap)
+{
+#ifdef __linux__
+    FILE *f = open("cat /proc/diskstats | awk '{print $3,$6,$10}' | grep -v ' 0 0$'", "r");
+    char line[128];
+    int64_t bytes_rd_total = 0, bytes_wr_total = 0;
+    while (fgets(line, sizeof line, f))
+    {
+        long sec_rd, sec_wr;
+        /*
+         * ref: https://www.kernel.org/doc/Documentation/ABI/testing/procfs-diskstats
+         1 - major number
+         2 - minor mumber
+         3 - device name
+         4 - reads completed successfully
+         5 - reads merged
+         6 - sectors read
+         7 - time spent reading (ms)
+         8 - writes completed
+         9 - writes merged
+        10 - sectors written
+        11 - time spent writing (ms)
+        12 - I/Os currently in progress
+        13 - time spent doing I/Os (ms)
+        14 - weighted time spent doing I/Os (ms)
+        exampele: 253       0 vda 271030 5 10842162 110468 1992433 698668 41103296 1604644 0 537832 1713740
+         */
+        if (2 == sscanf(line, "%*d %*d %*s %*ld %*ld %ld %*ld %*ld %*ld %ld", &sec_rd, &sec_wr)) {
+            long bytes_rd, bytes_wr;
+            bytes_rd = sec_rd * 512; /* FIXME: assume block size */
+            bytes_wr = sec_wr * 512; /* FIXME: assume block size */
+            bytes_rd_total += bytes_rd;
+            bytes_wr_total += bytes_wr;
+            snap->disk.rdbytes = bytes_rd_total;
+            snap->disk.wrbytes = bytes_wr_total;
+            snap->disk.totalbytes = bytes_rd_total + bytes_wr_total;
+        }
+    }
+    fclose(f);
+#endif
+#ifdef __MACH__
+    /*
+    $ iostat -d -I
+          disk0
+    KB/t xfrs   MB
+   39.17 598988 22913.05
+    */
+    FILE *f = popen("/usr/sbin/iostat -d -I", "r");
+    if (f) {
+        char line[256];
+        /* skip 2 header lines */
+        fgets(line, sizeof line, f);
+        fgets(line, sizeof line, f);
+        /* TODO: handle more than just the first device */
+        if (fgets(line, sizeof line, f)) {
+            int64_t bytes_io = 0;
+            double mb = 0;
+            if (1 == sscanf(line, "%*lf %*ld %lf", &mb)) {
+                printf("mb=%lf\n", mb);
+                bytes_io = (int64_t)(mb * (1024 * 1024));
+                snap->disk.totalbytes = bytes_io;
+            } else {
+                printf("iostat sscanf failed\n");
+            }
+        }
+        pclose(f);
+    }
+#endif
+}
+
 static void take_snap(snapshot_t *snap)
 {
     get_ts(snap);
     get_mem(snap);
     get_cpu(snap);
     get_net(snap);
+    get_disk(snap);
 }
 
 static void on_snap(const snapshot_t *a,
@@ -232,6 +308,10 @@ static void on_snap(const snapshot_t *a,
 
     const float mem_used_pct = (float)b->mem.used / b->mem.size;
 
+    const unsigned long disktotalbytes = b->disk.totalbytes - a->disk.totalbytes;
+    const unsigned long diskrdbytes    = b->disk.rdbytes - a->disk.rdbytes;
+    const unsigned long diskwrbytes    = b->disk.wrbytes - a->disk.wrbytes;
+
     const unsigned long rxbytes = b->net[0].rxbytes - a->net[0].rxbytes;
     const unsigned long txbytes = b->net[0].txbytes - a->net[0].txbytes;
 
@@ -244,12 +324,16 @@ static void on_snap(const snapshot_t *a,
         "%s"
         " %.1f %.1f %.1f"
         " %.1f"
+        " %lu %lu %lu"
         " %lu %lu\n",
         a->ts.str,
         cpu_busy_pct * 100,
         cpu_user_pct * 100,
         cpu_sys_pct * 100,
         mem_used_pct * 100,
+        disktotalbytes,
+        diskrdbytes,
+        diskwrbytes,
         rxbytes,
         txbytes);
 }
@@ -258,7 +342,6 @@ static snapshot_t snap1, snap2;
 
 void timer_handler(int signum)
 {
-    signum = signum; /* silence warning */
     take_snap(&snap2);
     on_snap(&snap1, &snap2);
     snap1 = snap2;
@@ -286,7 +369,7 @@ int main(int argc, char *argv[])
     timer.it_interval.tv_usec = 0;
     setitimer(ITIMER_REAL, &timer, NULL);
 
-    printf("ts cpu usr sys mem rx tx\n");
+    printf("ts cpu usr sys mem disktotal diskrd diskwr netrx nettx\n");
     take_snap(&snap1);
 
     while (!kill(watchpid, 0)) {
