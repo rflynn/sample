@@ -46,7 +46,7 @@ typedef struct {
         uint64_t user, sys, idle, nice, total;
     } cpu;
     struct {
-        int64_t totalbytes;
+        double all_mb;
         int64_t rdbytes;
         int64_t wrbytes;
     } disk;
@@ -240,7 +240,7 @@ static void get_disk(snapshot_t *snap)
         12 - I/Os currently in progress
         13 - time spent doing I/Os (ms)
         14 - weighted time spent doing I/Os (ms)
-        exampele: 253       0 vda 271030 5 10842162 110468 1992433 698668 41103296 1604644 0 537832 1713740
+        example: 253       0 vda 271030 5 10842162 110468 1992433 698668 41103296 1604644 0 537832 1713740
          */
         if (2 == sscanf(line, "%*d %*d %*s %*ld %*ld %ld %*ld %*ld %*ld %ld", &sec_rd, &sec_wr)) {
             long bytes_rd, bytes_wr;
@@ -270,14 +270,9 @@ static void get_disk(snapshot_t *snap)
         fgets(line, sizeof line, f);
         /* TODO: handle more than just the first device */
         if (fgets(line, sizeof line, f)) {
-            int64_t bytes_io = 0;
             double mb = 0;
             if (1 == sscanf(line, "%*lf %*ld %lf", &mb)) {
-                printf("mb=%lf\n", mb);
-                bytes_io = (int64_t)(mb * (1024 * 1024));
-                snap->disk.totalbytes = bytes_io;
-            } else {
-                printf("iostat sscanf failed\n");
+                snap->disk.all_mb = mb;
             }
         }
         pclose(f);
@@ -308,9 +303,9 @@ static void on_snap(const snapshot_t *a,
 
     const float mem_used_pct = (float)b->mem.used / b->mem.size;
 
-    const unsigned long disktotalbytes = b->disk.totalbytes - a->disk.totalbytes;
-    const unsigned long diskrdbytes    = b->disk.rdbytes - a->disk.rdbytes;
-    const unsigned long diskwrbytes    = b->disk.wrbytes - a->disk.wrbytes;
+    const double        diskallmb   = b->disk.all_mb  - a->disk.all_mb;
+    const unsigned long diskrdbytes = b->disk.rdbytes - a->disk.rdbytes;
+    const unsigned long diskwrbytes = b->disk.wrbytes - a->disk.wrbytes;
 
     const unsigned long rxbytes = b->net[0].rxbytes - a->net[0].rxbytes;
     const unsigned long txbytes = b->net[0].txbytes - a->net[0].txbytes;
@@ -324,14 +319,14 @@ static void on_snap(const snapshot_t *a,
         "%s"
         " %.1f %.1f %.1f"
         " %.1f"
-        " %lu %lu %lu"
+        " %.1f %lu %lu"
         " %lu %lu\n",
         a->ts.str,
         cpu_busy_pct * 100,
         cpu_user_pct * 100,
         cpu_sys_pct * 100,
         mem_used_pct * 100,
-        disktotalbytes,
+        diskallmb,
         diskrdbytes,
         diskwrbytes,
         rxbytes,
