@@ -242,7 +242,7 @@ static void get_disk(snapshot_t *snap)
         14 - weighted time spent doing I/Os (ms)
         example: 253       0 vda 271030 5 10842162 110468 1992433 698668 41103296 1604644 0 537832 1713740
          */
-        if (2 == sscanf(line, "%*d %*d %*s %*ld %*ld %ld %*ld %*ld %*ld %ld", &sec_rd, &sec_wr)) {
+        if (2 == sscanf(line, "%*d %*d %*s %*d %*d %ld %*d %*d %*d %ld", &sec_rd, &sec_wr)) {
             long bytes_rd, bytes_wr;
             bytes_rd = sec_rd * 512; /* FIXME: assume block size */
             bytes_wr = sec_wr * 512; /* FIXME: assume block size */
