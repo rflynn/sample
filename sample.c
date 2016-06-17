@@ -218,7 +218,7 @@ static void get_net(snapshot_t *snap)
 static void get_disk(snapshot_t *snap)
 {
 #ifdef __linux__
-    FILE *f = open("cat /proc/diskstats | awk '{print $3,$6,$10}' | grep -v ' 0 0$'", "r");
+    FILE *f = popen("cat /proc/diskstats | awk '{print $3,$6,$10}' | grep -v ' 0 0$'", "r");
     char line[128];
     int64_t bytes_rd_total = 0, bytes_wr_total = 0;
     while (fgets(line, sizeof line, f))
@@ -250,7 +250,7 @@ static void get_disk(snapshot_t *snap)
             bytes_wr_total += bytes_wr;
             snap->disk.rdbytes = bytes_rd_total;
             snap->disk.wrbytes = bytes_wr_total;
-            snap->disk.totalbytes = bytes_rd_total + bytes_wr_total;
+            snap->disk.all_mb = (bytes_rd_total + bytes_wr_total) / 1024.0 / 1024.0;
         }
     }
     fclose(f);
