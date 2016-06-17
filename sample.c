@@ -134,13 +134,17 @@ static void get_mem(snapshot_t *snap)
     }
 
     if (fgets(line, sizeof line, f)) {
-        if (1 == sscanf(line, "MemFree: %ld kB", &tmp)) {
+        /* MemFree */
+    }
+
+    if (fgets(line, sizeof line, f)) {
+        if (1 == sscanf(line, "MemAvailable: %ld kB", &tmp)) {
             free += tmp;
         }
     }
 
     if (fgets(line, sizeof line, f)) {
-        if (1 == sscanf(line, "MemAvailable: %ld kB", &tmp)) {
+        if (1 == sscanf(line, "Buffers: %ld kB", &tmp)) {
             free += tmp;
         }
     }
