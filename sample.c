@@ -114,19 +114,38 @@ static void get_mem(snapshot_t *snap)
 #ifdef __linux__
     FILE *f = fopen("/proc/meminfo", "r");
     char line[128];
+    int64_t free = 0;
+    long tmp;
+
+    /*
+     * $ cat /proc/meminfo
+     * MemTotal:       16312540 kB
+     * MemFree:         4577256 kB
+     * MemAvailable:   10759600 kB
+     * Buffers:          132800 kB
+     * Cached:         10030572 kB
+     */
 
     if (fgets(line, sizeof line, f)) {
         snap->mem.size = 0;
-        sscanf(line, "MemTotal: %ld kB", &snap->mem.size);
-        snap->mem.size *= 1024;
+        if (1 == sscanf(line, "MemTotal: %ld kB", &snap->mem.size)) {
+            snap->mem.size *= 1024;
+        }
     }
 
     if (fgets(line, sizeof line, f)) {
-        snap->mem.free = 0;
-        sscanf(line, "MemFree: %ld kB", &snap->mem.free);
-        snap->mem.free *= 1024;
+        if (1 == sscanf(line, "MemFree: %ld kB", &tmp)) {
+            free += tmp;
+        }
     }
 
+    if (fgets(line, sizeof line, f)) {
+        if (1 == sscanf(line, "MemAvailable: %ld kB", &tmp)) {
+            free += tmp;
+        }
+    }
+
+    snap->mem.free = free * 1024;
     snap->mem.used = snap->mem.size - snap->mem.free;
 
     fclose(f);
